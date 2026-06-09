@@ -6,8 +6,9 @@ const state = {
   categories: [],
   transactions: [],
   budgets: [],
+  goals: [],
   summary: null,
-  txFilter: { category: '', type: '' },
+  txFilter: { category: '', type: '', startDate: '', endDate: '' },
   editTarget: null,
 };
 
@@ -52,21 +53,38 @@ function fmtDate(dateStr) {
 }
 
 // ── Data loading ──────────────────────────────────────────────────────────
+function txQueryParams() {
+  const { startDate, endDate } = state.txFilter;
+  if (startDate || endDate) {
+    const p = new URLSearchParams();
+    if (startDate) p.set('start_date', startDate);
+    if (endDate)   p.set('end_date', endDate);
+    return `?${p}`;
+  }
+  return `?month=${state.month}&year=${state.year}`;
+}
+
 async function loadAll() {
-  const [cats, txs, bgets, sum] = await Promise.all([
+  const [cats, txs, bgets, sum, gls] = await Promise.all([
     get('/categories'),
-    get(`/transactions?month=${state.month}&year=${state.year}`),
+    get(`/transactions${txQueryParams()}`),
     get(`/budgets?month=${state.month}&year=${state.year}`),
     get(`/summary?month=${state.month}&year=${state.year}`),
+    get('/goals'),
   ]);
-  state.categories = cats;
+  state.categories   = cats;
   state.transactions = txs;
-  state.budgets = bgets;
-  state.summary = sum;
+  state.budgets      = bgets;
+  state.summary      = sum;
+  state.goals        = gls;
 }
 
 async function loadCategories() {
   state.categories = await get('/categories');
+}
+
+async function loadGoals() {
+  state.goals = await get('/goals');
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────
@@ -103,11 +121,22 @@ let barChart = null;
 // ── Render dispatcher ─────────────────────────────────────────────────────
 function render() {
   const app = document.getElementById('app');
-
-  if (state.page === 'dashboard') renderDashboard(app);
+  if (state.page === 'dashboard')    renderDashboard(app);
   else if (state.page === 'transactions') renderTransactions(app);
-  else if (state.page === 'budgets') renderBudgets(app);
-  else if (state.page === 'categories') renderCategories(app);
+  else if (state.page === 'budgets')      renderBudgets(app);
+  else if (state.page === 'goals')        renderGoals(app);
+  else if (state.page === 'categories')   renderCategories(app);
+}
+
+// ── Comparison chip ───────────────────────────────────────────────────────
+function changeChip(pct, lowerIsBetter = false) {
+  if (pct === null || pct === undefined) return '';
+  const abs = Math.abs(pct).toFixed(1);
+  const up = pct >= 0;
+  const good = lowerIsBetter ? !up : up;
+  const arrow = up ? '▲' : '▼';
+  const cls = up ? (good ? 'up-good' : 'up-bad') : (good ? 'down-good' : 'down-bad');
+  return `<span class="card-change ${cls}">${arrow} ${abs}% vs last month</span>`;
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
@@ -125,10 +154,12 @@ function renderDashboard(app) {
       <div class="card">
         <div class="card-label">Total Income</div>
         <div class="card-value income">${s ? fmt(s.total_income) : '—'}</div>
+        ${s ? changeChip(s.income_change_pct, false) : ''}
       </div>
       <div class="card">
         <div class="card-label">Total Expenses</div>
         <div class="card-value expense">${s ? fmt(s.total_expenses) : '—'}</div>
+        ${s ? changeChip(s.expense_change_pct, true) : ''}
       </div>
       <div class="card">
         <div class="card-label">Net Balance</div>
@@ -289,8 +320,7 @@ function renderBar() {
 
 // ── Transactions ──────────────────────────────────────────────────────────
 function renderTransactions(app) {
-  const catFilter = state.txFilter.category;
-  const typeFilter = state.txFilter.type;
+  const { category: catFilter, type: typeFilter, startDate, endDate } = state.txFilter;
 
   let txs = state.transactions;
   if (catFilter) txs = txs.filter(t => t.category_id === parseInt(catFilter));
@@ -299,6 +329,19 @@ function renderTransactions(app) {
   const catOptions = state.categories.map(c =>
     `<option value="${c.id}" ${catFilter == c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
   ).join('');
+
+  // Build CSV export URL from current filters
+  const csvParams = new URLSearchParams();
+  if (startDate || endDate) {
+    if (startDate) csvParams.set('start_date', startDate);
+    if (endDate)   csvParams.set('end_date', endDate);
+  } else {
+    csvParams.set('month', state.month);
+    csvParams.set('year', state.year);
+  }
+  if (catFilter)  csvParams.set('category_id', catFilter);
+  if (typeFilter) csvParams.set('type', typeFilter);
+  const csvUrl = `/api/transactions/export?${csvParams}`;
 
   app.innerHTML = `
     <div class="page-header">
@@ -316,8 +359,18 @@ function renderTransactions(app) {
           <option value="">All categories</option>
           ${catOptions}
         </select>
+        <input type="date" class="filter-date" id="filterStart"
+          value="${startDate}" title="Start date"
+          onchange="setTxFilter('startDate', this.value)">
+        <input type="date" class="filter-date" id="filterEnd"
+          value="${endDate}" title="End date"
+          onchange="setTxFilter('endDate', this.value)">
+        ${startDate || endDate ? `<button class="btn btn-ghost" style="padding:6px 10px;font-size:12px" onclick="clearDateFilter()">✕ Clear dates</button>` : ''}
       </div>
-      <button class="btn btn-primary" onclick="openTxModal()">+ Add Transaction</button>
+      <div style="display:flex;gap:8px">
+        <a href="${csvUrl}" download class="btn btn-ghost">⬇ Export CSV</a>
+        <button class="btn btn-primary" onclick="openTxModal()">+ Add Transaction</button>
+      </div>
     </div>
     <div class="panel">
       <div class="transactions-table-wrap">
@@ -362,8 +415,19 @@ function renderTransactions(app) {
   `;
 }
 
-function setTxFilter(key, val) {
+async function setTxFilter(key, val) {
   state.txFilter[key] = val;
+  // date range changes require a fresh fetch; type/category filter client-side only
+  if (key === 'startDate' || key === 'endDate') {
+    state.transactions = await get(`/transactions${txQueryParams()}`);
+  }
+  renderTransactions(document.getElementById('app'));
+}
+
+async function clearDateFilter() {
+  state.txFilter.startDate = '';
+  state.txFilter.endDate = '';
+  state.transactions = await get(`/transactions${txQueryParams()}`);
   renderTransactions(document.getElementById('app'));
 }
 
@@ -373,7 +437,6 @@ function openTxModal(id = null) {
   state.editTarget = tx;
 
   const today = new Date().toISOString().split('T')[0];
-
   const incCats = state.categories.filter(c => c.type === 'income');
   const expCats = state.categories.filter(c => c.type === 'expense');
 
@@ -602,6 +665,180 @@ async function deleteBudget(id) {
     await del(`/budgets/${id}`);
     toast('Budget removed');
     await refresh();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ── Goals ─────────────────────────────────────────────────────────────────
+function goalDeadlineHTML(deadline) {
+  if (!deadline) return '<span class="goal-deadline ok">No deadline</span>';
+  const days = Math.ceil((new Date(deadline) - new Date()) / 86400000);
+  if (days < 0)  return `<span class="goal-deadline overdue">Overdue by ${Math.abs(days)}d</span>`;
+  if (days <= 30) return `<span class="goal-deadline soon">${days} days left</span>`;
+  return `<span class="goal-deadline ok">${fmtDate(deadline)}</span>`;
+}
+
+function renderGoals(app) {
+  app.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">Savings Goals</div>
+      <button class="btn btn-primary" onclick="openGoalModal()">+ New Goal</button>
+    </div>
+    ${state.goals.length ? `
+      <div class="goals-grid">
+        ${state.goals.map(g => {
+          const pct = Math.min(g.current_amount / g.target_amount * 100, 100);
+          const done = g.current_amount >= g.target_amount;
+          const color = done ? 'var(--income)' : (pct > 75 ? 'var(--warning)' : 'var(--accent)');
+          return `
+            <div class="goal-card">
+              <div class="goal-header">
+                <div>
+                  <div class="goal-name">${done ? '✅ ' : '🎯 '}${g.name}</div>
+                  ${goalDeadlineHTML(g.deadline)}
+                </div>
+                <div style="display:flex;gap:4px">
+                  <button class="action-btn" onclick="openGoalModal(${g.id})" title="Edit">✏️</button>
+                  <button class="action-btn danger" onclick="deleteGoal(${g.id})" title="Delete">🗑️</button>
+                </div>
+              </div>
+              <div class="goal-amounts">
+                <span class="goal-current" style="color:${color}">${fmt(g.current_amount)}</span>
+                <span class="goal-target">of ${fmt(g.target_amount)}</span>
+              </div>
+              <div class="progress-bar-bg" style="margin-bottom:6px">
+                <div class="progress-bar-fill" style="width:${pct}%;background:${color}"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="goal-pct">${pct.toFixed(1)}% saved</span>
+                ${!done ? `<span class="goal-pct">${fmt(g.target_amount - g.current_amount)} to go</span>` : ''}
+              </div>
+              ${!done ? `
+                <div class="goal-actions">
+                  <button class="btn btn-ghost" style="flex:1;font-size:12px" onclick="openContributeModal(${g.id})">+ Add Funds</button>
+                </div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    ` : `<div class="empty"><div class="empty-icon">🎯</div><p>No savings goals yet — create one to get started</p></div>`}
+  `;
+}
+
+function openGoalModal(id = null) {
+  const goal = id ? state.goals.find(g => g.id === id) : null;
+  state.editTarget = goal;
+
+  document.getElementById('modalOverlay').innerHTML = `
+    <div class="modal">
+      <div class="modal-title">${goal ? 'Edit Goal' : 'New Savings Goal'}</div>
+      <div class="form-group">
+        <label class="form-label">Goal Name</label>
+        <input class="form-input" type="text" id="goalName"
+          value="${goal?.name || ''}" placeholder="e.g. Emergency Fund">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Target Amount ($)</label>
+          <input class="form-input" type="number" id="goalTarget" min="1" step="1"
+            value="${goal?.target_amount || ''}" placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Current Saved ($)</label>
+          <input class="form-input" type="number" id="goalCurrent" min="0" step="0.01"
+            value="${goal?.current_amount ?? 0}" placeholder="0.00">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Deadline (optional)</label>
+        <input class="form-input" type="date" id="goalDeadline"
+          value="${goal?.deadline || ''}">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveGoal()">Save</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function openContributeModal(id) {
+  const goal = state.goals.find(g => g.id === id);
+  if (!goal) return;
+  state.editTarget = goal;
+
+  document.getElementById('modalOverlay').innerHTML = `
+    <div class="modal">
+      <div class="modal-title">Add Funds — ${goal.name}</div>
+      <div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">
+        Current: ${fmt(goal.current_amount)} &nbsp;/&nbsp; Target: ${fmt(goal.target_amount)}
+      </div>
+      <div class="form-group">
+        <label class="form-label">Amount to Add ($)</label>
+        <input class="form-input" type="number" id="contributeAmount" min="0.01" step="0.01" placeholder="0.00">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveContribution()">Add Funds</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+async function saveGoal() {
+  const name = document.getElementById('goalName').value.trim();
+  const target_amount = parseFloat(document.getElementById('goalTarget').value);
+  const current_amount = parseFloat(document.getElementById('goalCurrent').value) || 0;
+  const deadline = document.getElementById('goalDeadline').value || null;
+
+  if (!name || !target_amount) { toast('Name and target amount are required', 'error'); return; }
+
+  try {
+    if (state.editTarget) {
+      await put(`/goals/${state.editTarget.id}`, { name, target_amount, current_amount, deadline });
+      toast('Goal updated');
+    } else {
+      await post('/goals', { name, target_amount, current_amount, deadline });
+      toast('Goal created');
+    }
+    closeModal();
+    await loadGoals();
+    renderGoals(document.getElementById('app'));
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function saveContribution() {
+  const add = parseFloat(document.getElementById('contributeAmount').value);
+  if (!add || add <= 0) { toast('Enter a positive amount', 'error'); return; }
+
+  const goal = state.editTarget;
+  const new_amount = Math.min(goal.current_amount + add, goal.target_amount);
+
+  try {
+    await put(`/goals/${goal.id}`, { current_amount: new_amount });
+    toast(new_amount >= goal.target_amount ? '🎉 Goal reached!' : 'Funds added');
+    closeModal();
+    await loadGoals();
+    renderGoals(document.getElementById('app'));
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteGoal(id) {
+  if (!confirm('Delete this savings goal?')) return;
+  try {
+    await del(`/goals/${id}`);
+    toast('Goal deleted');
+    await loadGoals();
+    renderGoals(document.getElementById('app'));
   } catch (e) {
     toast(e.message, 'error');
   }

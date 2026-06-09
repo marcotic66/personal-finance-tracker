@@ -319,6 +319,45 @@ tr:hover td { background: var(--surface2); }
   .main { margin-left: 60px; padding: 16px; }
 }
 
+/* Monthly comparison chips */
+.card-change {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 600; margin-top: 6px;
+  padding: 2px 8px; border-radius: 99px;
+}
+.card-change.up-good   { background: rgba(34,197,94,0.12);  color: var(--income); }
+.card-change.up-bad    { background: rgba(239,68,68,0.12);  color: var(--expense); }
+.card-change.down-good { background: rgba(34,197,94,0.12);  color: var(--income); }
+.card-change.down-bad  { background: rgba(239,68,68,0.12);  color: var(--expense); }
+.card-change.neutral   { background: rgba(136,146,164,0.12); color: var(--text-muted); }
+
+/* Goals page */
+.goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.goal-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px;
+}
+.goal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+.goal-name { font-size: 15px; font-weight: 600; }
+.goal-deadline { font-size: 12px; margin-top: 2px; }
+.goal-deadline.overdue { color: var(--expense); }
+.goal-deadline.soon    { color: var(--warning); }
+.goal-deadline.ok      { color: var(--text-muted); }
+.goal-amounts { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
+.goal-current { font-weight: 700; font-size: 18px; }
+.goal-target  { color: var(--text-muted); }
+.goal-pct     { font-size: 12px; color: var(--text-muted); }
+.goal-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+/* Date range filter inputs */
+.filter-date {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 10px; border-radius: 8px;
+  font-size: 13px; outline: none;
+  color-scheme: dark;
+}
+.filter-date:focus { border-color: var(--accent); }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--surface); }

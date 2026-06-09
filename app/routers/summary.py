@@ -63,6 +63,25 @@ def get_summary(
     total_income = sum(t.amount for t in transactions if t.type == models.TransactionType.income)
     total_expenses = sum(t.amount for t in transactions if t.type == models.TransactionType.expense)
 
+    # Previous month for comparison
+    prev_month = month - 1 if month > 1 else 12
+    prev_year  = year if month > 1 else year - 1
+    prev_txs = (
+        db.query(models.Transaction)
+        .filter(
+            extract("month", models.Transaction.date) == prev_month,
+            extract("year",  models.Transaction.date) == prev_year,
+        )
+        .all()
+    )
+    prev_income   = sum(t.amount for t in prev_txs if t.type == models.TransactionType.income)
+    prev_expenses = sum(t.amount for t in prev_txs if t.type == models.TransactionType.expense)
+
+    def pct_change(current, previous):
+        if previous == 0:
+            return None
+        return round((current - previous) / previous * 100, 1)
+
     return schemas.MonthlySummary(
         month=month,
         year=year,
@@ -70,4 +89,8 @@ def get_summary(
         total_expenses=total_expenses,
         net=total_income - total_expenses,
         by_category=by_category,
+        prev_income=prev_income,
+        prev_expenses=prev_expenses,
+        income_change_pct=pct_change(total_income, prev_income),
+        expense_change_pct=pct_change(total_expenses, prev_expenses),
     )

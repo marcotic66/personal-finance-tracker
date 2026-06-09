@@ -6,6 +6,8 @@ import enum
 from app.database import Base
 
 
+
+
 class TransactionType(str, enum.Enum):
     income = "income"
     expense = "expense"
@@ -50,3 +52,14 @@ class Budget(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     category = relationship("Category", back_populates="budgets")
+
+
+class SavingsGoal(Base):
+    __tablename__ = "savings_goals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    target_amount = Column(Float, nullable=False)
+    current_amount = Column(Float, default=0.0, nullable=False)
+    deadline = Column(Date, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
