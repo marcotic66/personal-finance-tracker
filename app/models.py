@@ -61,5 +61,6 @@ class SavingsGoal(Base):
     name = Column(String, nullable=False)
     target_amount = Column(Float, nullable=False)
     current_amount = Column(Float, default=0.0, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     deadline = Column(Date, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

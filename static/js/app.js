@@ -121,10 +121,9 @@ let barChart = null;
 // ── Render dispatcher ─────────────────────────────────────────────────────
 function render() {
   const app = document.getElementById('app');
-  if (state.page === 'dashboard')    renderDashboard(app);
+  if (state.page === 'dashboard')      renderDashboard(app);
   else if (state.page === 'transactions') renderTransactions(app);
   else if (state.page === 'budgets')      renderBudgets(app);
-  else if (state.page === 'goals')        renderGoals(app);
   else if (state.page === 'categories')   renderCategories(app);
 }
 
@@ -137,6 +136,55 @@ function changeChip(pct, lowerIsBetter = false) {
   const arrow = up ? '▲' : '▼';
   const cls = up ? (good ? 'up-good' : 'up-bad') : (good ? 'down-good' : 'down-bad');
   return `<span class="card-change ${cls}">${arrow} ${abs}% vs last month</span>`;
+}
+
+// ── Goal deadline badge ────────────────────────────────────────────────────
+function goalDeadlineHTML(deadline) {
+  if (!deadline) return '';
+  const days = Math.ceil((new Date(deadline) - new Date()) / 86400000);
+  if (days < 0)   return `<span class="goal-deadline overdue">&nbsp;· Overdue by ${Math.abs(days)}d</span>`;
+  if (days <= 30) return `<span class="goal-deadline soon">&nbsp;· ${days}d left</span>`;
+  return `<span class="goal-deadline ok">&nbsp;· ${fmtDate(deadline)}</span>`;
+}
+
+// ── Goal rows (used inside dashboard) ─────────────────────────────────────
+function renderGoalRows() {
+  if (!state.goals.length) {
+    return '<div class="empty"><div class="empty-icon">🎯</div><p>No savings goals yet — click "+ New Goal" to create one</p></div>';
+  }
+  return state.goals.map(g => {
+    const pct = g.target_amount > 0 ? Math.min(g.current_amount / g.target_amount * 100, 100) : 0;
+    const done = g.current_amount >= g.target_amount;
+    const color = done ? 'var(--income)' : (pct > 75 ? 'var(--warning)' : 'var(--accent)');
+    const linkedCat = g.category_id ? state.categories.find(c => c.id === g.category_id) : null;
+    return `
+      <div class="budget-item">
+        <div class="budget-header">
+          <div class="budget-name">
+            <span>${done ? '✅' : '🎯'}</span>
+            <span>${g.name}</span>
+            ${linkedCat ? `<span style="font-size:11px;color:var(--text-muted)">&nbsp;via ${linkedCat.icon} ${linkedCat.name}</span>` : ''}
+            ${goalDeadlineHTML(g.deadline)}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:${color};font-weight:600;font-size:13px">${fmt(g.current_amount)}</span>
+            <span class="budget-amounts">/ ${fmt(g.target_amount)}</span>
+            <button class="action-btn" onclick="openGoalModal(${g.id})" title="Edit">✏️</button>
+            <button class="action-btn danger" onclick="deleteGoal(${g.id})" title="Delete">🗑️</button>
+          </div>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--text-muted)">
+          <span>${pct.toFixed(1)}% saved</span>
+          ${done
+            ? '<span style="color:var(--income);font-weight:600">Goal reached! 🎉</span>'
+            : `<span>${fmt(g.target_amount - g.current_amount)} to go</span>`}
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
@@ -186,6 +234,14 @@ function renderDashboard(app) {
         </span>
       </div>
       <div class="budget-list" id="budgetBars"></div>
+    </div>
+
+    <div class="panel" style="margin-top:20px">
+      <div class="panel-title">
+        Savings Goals
+        <button class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openGoalModal()">+ New Goal</button>
+      </div>
+      <div class="budget-list">${renderGoalRows()}</div>
     </div>
   `;
 
@@ -330,7 +386,6 @@ function renderTransactions(app) {
     `<option value="${c.id}" ${catFilter == c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
   ).join('');
 
-  // Build CSV export URL from current filters
   const csvParams = new URLSearchParams();
   if (startDate || endDate) {
     if (startDate) csvParams.set('start_date', startDate);
@@ -417,7 +472,6 @@ function renderTransactions(app) {
 
 async function setTxFilter(key, val) {
   state.txFilter[key] = val;
-  // date range changes require a fresh fetch; type/category filter client-side only
   if (key === 'startDate' || key === 'endDate') {
     state.transactions = await get(`/transactions${txQueryParams()}`);
   }
@@ -670,65 +724,15 @@ async function deleteBudget(id) {
   }
 }
 
-// ── Goals ─────────────────────────────────────────────────────────────────
-function goalDeadlineHTML(deadline) {
-  if (!deadline) return '<span class="goal-deadline ok">No deadline</span>';
-  const days = Math.ceil((new Date(deadline) - new Date()) / 86400000);
-  if (days < 0)  return `<span class="goal-deadline overdue">Overdue by ${Math.abs(days)}d</span>`;
-  if (days <= 30) return `<span class="goal-deadline soon">${days} days left</span>`;
-  return `<span class="goal-deadline ok">${fmtDate(deadline)}</span>`;
-}
-
-function renderGoals(app) {
-  app.innerHTML = `
-    <div class="page-header">
-      <div class="page-title">Savings Goals</div>
-      <button class="btn btn-primary" onclick="openGoalModal()">+ New Goal</button>
-    </div>
-    ${state.goals.length ? `
-      <div class="goals-grid">
-        ${state.goals.map(g => {
-          const pct = Math.min(g.current_amount / g.target_amount * 100, 100);
-          const done = g.current_amount >= g.target_amount;
-          const color = done ? 'var(--income)' : (pct > 75 ? 'var(--warning)' : 'var(--accent)');
-          return `
-            <div class="goal-card">
-              <div class="goal-header">
-                <div>
-                  <div class="goal-name">${done ? '✅ ' : '🎯 '}${g.name}</div>
-                  ${goalDeadlineHTML(g.deadline)}
-                </div>
-                <div style="display:flex;gap:4px">
-                  <button class="action-btn" onclick="openGoalModal(${g.id})" title="Edit">✏️</button>
-                  <button class="action-btn danger" onclick="deleteGoal(${g.id})" title="Delete">🗑️</button>
-                </div>
-              </div>
-              <div class="goal-amounts">
-                <span class="goal-current" style="color:${color}">${fmt(g.current_amount)}</span>
-                <span class="goal-target">of ${fmt(g.target_amount)}</span>
-              </div>
-              <div class="progress-bar-bg" style="margin-bottom:6px">
-                <div class="progress-bar-fill" style="width:${pct}%;background:${color}"></div>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:center">
-                <span class="goal-pct">${pct.toFixed(1)}% saved</span>
-                ${!done ? `<span class="goal-pct">${fmt(g.target_amount - g.current_amount)} to go</span>` : ''}
-              </div>
-              ${!done ? `
-                <div class="goal-actions">
-                  <button class="btn btn-ghost" style="flex:1;font-size:12px" onclick="openContributeModal(${g.id})">+ Add Funds</button>
-                </div>` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
-    ` : `<div class="empty"><div class="empty-icon">🎯</div><p>No savings goals yet — create one to get started</p></div>`}
-  `;
-}
-
+// ── Goals (modal + CRUD, displayed on dashboard) ──────────────────────────
 function openGoalModal(id = null) {
   const goal = id ? state.goals.find(g => g.id === id) : null;
   state.editTarget = goal;
+
+  const incCats = state.categories.filter(c => c.type === 'income');
+  const catOpts = `<option value="">— None —</option>` + incCats.map(c =>
+    `<option value="${c.id}" ${goal?.category_id === c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
+  ).join('');
 
   document.getElementById('modalOverlay').innerHTML = `
     <div class="modal">
@@ -745,15 +749,17 @@ function openGoalModal(id = null) {
             value="${goal?.target_amount || ''}" placeholder="0.00">
         </div>
         <div class="form-group">
-          <label class="form-label">Current Saved ($)</label>
-          <input class="form-input" type="number" id="goalCurrent" min="0" step="0.01"
-            value="${goal?.current_amount ?? 0}" placeholder="0.00">
+          <label class="form-label">Deadline (optional)</label>
+          <input class="form-input" type="date" id="goalDeadline"
+            value="${goal?.deadline || ''}">
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Deadline (optional)</label>
-        <input class="form-input" type="date" id="goalDeadline"
-          value="${goal?.deadline || ''}">
+        <label class="form-label">Savings Category</label>
+        <select class="form-select" id="goalCategory">${catOpts}</select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          Income transactions in this category count toward the goal
+        </div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -765,68 +771,25 @@ function openGoalModal(id = null) {
   document.getElementById('modalOverlay').classList.add('open');
 }
 
-function openContributeModal(id) {
-  const goal = state.goals.find(g => g.id === id);
-  if (!goal) return;
-  state.editTarget = goal;
-
-  document.getElementById('modalOverlay').innerHTML = `
-    <div class="modal">
-      <div class="modal-title">Add Funds — ${goal.name}</div>
-      <div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">
-        Current: ${fmt(goal.current_amount)} &nbsp;/&nbsp; Target: ${fmt(goal.target_amount)}
-      </div>
-      <div class="form-group">
-        <label class="form-label">Amount to Add ($)</label>
-        <input class="form-input" type="number" id="contributeAmount" min="0.01" step="0.01" placeholder="0.00">
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveContribution()">Add Funds</button>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('modalOverlay').classList.add('open');
-}
-
 async function saveGoal() {
   const name = document.getElementById('goalName').value.trim();
   const target_amount = parseFloat(document.getElementById('goalTarget').value);
-  const current_amount = parseFloat(document.getElementById('goalCurrent').value) || 0;
   const deadline = document.getElementById('goalDeadline').value || null;
+  const category_id = parseInt(document.getElementById('goalCategory').value) || null;
 
   if (!name || !target_amount) { toast('Name and target amount are required', 'error'); return; }
 
   try {
     if (state.editTarget) {
-      await put(`/goals/${state.editTarget.id}`, { name, target_amount, current_amount, deadline });
+      await put(`/goals/${state.editTarget.id}`, { name, target_amount, deadline, category_id });
       toast('Goal updated');
     } else {
-      await post('/goals', { name, target_amount, current_amount, deadline });
+      await post('/goals', { name, target_amount, deadline, category_id });
       toast('Goal created');
     }
     closeModal();
     await loadGoals();
-    renderGoals(document.getElementById('app'));
-  } catch (e) {
-    toast(e.message, 'error');
-  }
-}
-
-async function saveContribution() {
-  const add = parseFloat(document.getElementById('contributeAmount').value);
-  if (!add || add <= 0) { toast('Enter a positive amount', 'error'); return; }
-
-  const goal = state.editTarget;
-  const new_amount = Math.min(goal.current_amount + add, goal.target_amount);
-
-  try {
-    await put(`/goals/${goal.id}`, { current_amount: new_amount });
-    toast(new_amount >= goal.target_amount ? '🎉 Goal reached!' : 'Funds added');
-    closeModal();
-    await loadGoals();
-    renderGoals(document.getElementById('app'));
+    renderDashboard(document.getElementById('app'));
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -838,7 +801,7 @@ async function deleteGoal(id) {
     await del(`/goals/${id}`);
     toast('Goal deleted');
     await loadGoals();
-    renderGoals(document.getElementById('app'));
+    renderDashboard(document.getElementById('app'));
   } catch (e) {
     toast(e.message, 'error');
   }

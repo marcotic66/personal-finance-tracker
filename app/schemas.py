@@ -130,21 +130,14 @@ class MonthlySummary(BaseModel):
 class SavingsGoalBase(BaseModel):
     name: str
     target_amount: float
-    current_amount: float = 0.0
     deadline: Optional[date] = None
+    category_id: Optional[int] = None
 
     @field_validator("target_amount")
     @classmethod
     def target_positive(cls, v):
         if v <= 0:
             raise ValueError("target_amount must be positive")
-        return v
-
-    @field_validator("current_amount")
-    @classmethod
-    def current_non_negative(cls, v):
-        if v < 0:
-            raise ValueError("current_amount cannot be negative")
         return v
 
 
@@ -155,12 +148,13 @@ class SavingsGoalCreate(SavingsGoalBase):
 class SavingsGoalUpdate(BaseModel):
     name: Optional[str] = None
     target_amount: Optional[float] = None
-    current_amount: Optional[float] = None
     deadline: Optional[date] = None
+    category_id: Optional[int] = None
 
 
 class SavingsGoalOut(SavingsGoalBase):
     id: int
+    current_amount: float = 0.0
     created_at: datetime
 
     model_config = {"from_attributes": True}
