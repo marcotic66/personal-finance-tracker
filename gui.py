@@ -345,21 +345,22 @@ class DonutPanel(ttk.LabelFrame):
             self._ax.text(0.5, 0.5, "No expense data", ha="center", va="center",
                           color=COLORS["muted"], transform=self._ax.transAxes, fontsize=10)
         else:
-            wedges, _, autotexts = self._ax.pie(
+            total = sum(c["total"] for c in data)
+            legend_labels = [
+                f"{c['category_name']}  {c['total'] / total * 100:.0f}%"
+                for c in data
+            ]
+            wedges, _ = self._ax.pie(
                 [c["total"] for c in data],
                 labels=None,
                 colors=[c["category_color"] for c in data],
-                autopct="%1.0f%%",
+                autopct=None,
                 startangle=90,
                 wedgeprops={"width": 0.55, "linewidth": 1.5, "edgecolor": COLORS["surface"]},
-                pctdistance=0.75,
             )
-            for at in autotexts:
-                at.set_color(COLORS["text"])
-                at.set_fontsize(8)
             self._ax.legend(
                 wedges,
-                [c["category_name"] for c in data],
+                legend_labels,
                 loc="center left",
                 bbox_to_anchor=(1.0, 0.5),
                 fontsize=8,
