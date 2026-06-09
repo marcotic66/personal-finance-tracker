@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finance Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="sidebar-logo">
+        <span>💰</span>
+        <span>Finance</span>
+      </div>
+      <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+        <span class="nav-icon">📊</span>
+        <span>Dashboard</span>
+      </div>
+      <div class="nav-item" data-page="transactions" onclick="navigate('transactions')">
+        <span class="nav-icon">💸</span>
+        <span>Transactions</span>
+      </div>
+      <div class="nav-item" data-page="budgets" onclick="navigate('budgets')">
+        <span class="nav-icon">📋</span>
+        <span>Budgets</span>
+      </div>
+      <div class="nav-item" data-page="categories" onclick="navigate('categories')">
+        <span class="nav-icon">🏷️</span>
+        <span>Categories</span>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div id="app">
+        <div style="display:flex;align-items:center;justify-content:center;height:60vh;color:var(--text-muted)">
+          Loading…
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="modalOverlay" class="modal-overlay"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
