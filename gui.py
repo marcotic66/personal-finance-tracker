@@ -345,21 +345,32 @@ class DonutPanel(ttk.LabelFrame):
             self._ax.text(0.5, 0.5, "No expense data", ha="center", va="center",
                           color=COLORS["muted"], transform=self._ax.transAxes, fontsize=10)
         else:
-            wedges, texts, autotexts = self._ax.pie(
+            wedges, _, autotexts = self._ax.pie(
                 [c["total"] for c in data],
-                labels=[c["category_name"] for c in data],
+                labels=None,
                 colors=[c["category_color"] for c in data],
                 autopct="%1.0f%%",
                 startangle=90,
                 wedgeprops={"width": 0.55, "linewidth": 1.5, "edgecolor": COLORS["surface"]},
                 pctdistance=0.75,
             )
-            for t in texts:
-                t.set_color(COLORS["muted"])
-                t.set_fontsize(8)
             for at in autotexts:
                 at.set_color(COLORS["text"])
                 at.set_fontsize(8)
+            self._ax.legend(
+                wedges,
+                [c["category_name"] for c in data],
+                loc="center left",
+                bbox_to_anchor=(1.0, 0.5),
+                fontsize=8,
+                labelcolor=COLORS["muted"],
+                facecolor=COLORS["surface"],
+                edgecolor=COLORS["border"],
+                framealpha=1,
+                handlelength=1.2,
+                handleheight=1.2,
+                borderpad=0.6,
+            )
         self._fig.tight_layout(pad=0.5)
         self._canvas.draw_idle()
 
@@ -459,9 +470,11 @@ class BudgetBarsPanel(ttk.LabelFrame):
             canvas = tk.Canvas(row, bg=COLORS["surface2"], height=8,
                                 highlightthickness=0)
             canvas.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-            row.update_idletasks()
-            w = canvas.winfo_width() or 300
-            canvas.create_rectangle(0, 0, int(w * pct), 8, fill=bar_color, outline="")
+            # Draw the fill after layout settles; use after() to avoid triggering
+            # update_idletasks() mid-redraw which crashes matplotlib's legend draw.
+            canvas.after(50, lambda c=canvas, p=pct, col=bar_color:
+                         c.create_rectangle(0, 0, int(c.winfo_width() * p), 8,
+                                            fill=col, outline=""))
 
 
 # ── Dashboard tab ──────────────────────────────────────────────────────────
