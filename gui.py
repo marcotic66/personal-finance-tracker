@@ -62,6 +62,7 @@ class ApiClient:
     def get_transactions(self, m, y):   return self._get("/transactions/", month=m, year=y)
     def get_budgets(self, m, y):        return self._get("/budgets/", month=m, year=y)
     def get_summary(self, m, y):        return self._get("/summary/", month=m, year=y)
+    def get_goals(self):                return self._get("/goals/")
 
     def create_transaction(self, p):    return self._post("/transactions/", p)
     def update_transaction(self, i, p): return self._put(f"/transactions/{i}", p)
@@ -81,6 +82,7 @@ class AppState:
     categories: list = field(default_factory=list)
     transactions: list = field(default_factory=list)
     budgets: list = field(default_factory=list)
+    goals: list = field(default_factory=list)
     summary: dict = field(default_factory=dict)
 
 
@@ -478,6 +480,61 @@ class BudgetBarsPanel(ttk.LabelFrame):
                                             fill=col, outline=""))
 
 
+# ── Goals progress bars ────────────────────────────────────────────────────
+
+class GoalsBarsPanel(ttk.LabelFrame):
+    def __init__(self, parent, **kw):
+        super().__init__(parent, text="Savings Goals", **kw)
+        self._inner = tk.Frame(self, bg=COLORS["surface"])
+        self._inner.pack(fill="both", expand=True, padx=12, pady=8)
+
+    def update(self, goals, categories):
+        for w in self._inner.winfo_children():
+            w.destroy()
+
+        if not goals:
+            tk.Label(self._inner, text="No savings goals yet",
+                     bg=COLORS["surface"], fg=COLORS["muted"],
+                     font=("TkDefaultFont", 10)).pack(pady=16)
+            return
+
+        cat_map = {c["id"]: c for c in categories}
+
+        for g in goals:
+            pct  = min(g["current_amount"] / g["target_amount"], 1.0) if g["target_amount"] else 0
+            done = g["current_amount"] >= g["target_amount"]
+            bar_color = (COLORS["income"] if done else
+                         COLORS["warning"] if pct > 0.75 else COLORS["accent"])
+
+            linked = cat_map.get(g.get("category_id"))
+            name_text = ("✅ " if done else "🎯 ") + g["name"]
+            if linked:
+                name_text += f"  ({linked['icon']} {linked['name']})"
+
+            row = tk.Frame(self._inner, bg=COLORS["surface"])
+            row.pack(fill="x", pady=(0, 10))
+            row.columnconfigure(1, weight=1)
+
+            tk.Label(row, text=name_text,
+                     bg=COLORS["surface"], fg=COLORS["text"],
+                     font=("TkDefaultFont", 10), anchor="w"
+                     ).grid(row=0, column=0, sticky="w")
+
+            amount_txt = fmt(g["current_amount"]) + " / " + fmt(g["target_amount"])
+            tk.Label(row, text=amount_txt,
+                     bg=COLORS["surface"],
+                     fg=COLORS["income"] if done else COLORS["muted"],
+                     font=("TkDefaultFont", 9)
+                     ).grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+            canvas = tk.Canvas(row, bg=COLORS["surface2"], height=8,
+                                highlightthickness=0)
+            canvas.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+            canvas.after(50, lambda c=canvas, p=pct, col=bar_color:
+                         c.create_rectangle(0, 0, int(c.winfo_width() * p), 8,
+                                            fill=col, outline=""))
+
+
 # ── Dashboard tab ──────────────────────────────────────────────────────────
 
 class DashboardTab(ttk.Frame):
@@ -511,9 +568,12 @@ class DashboardTab(ttk.Frame):
         self._bar.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
         self._budget_bars = BudgetBarsPanel(self)
-        self._budget_bars.pack(fill="x", padx=16, pady=(0, 16))
+        self._budget_bars.pack(fill="x", padx=16, pady=(0, 8))
 
-    def refresh(self, summary):
+        self._goal_bars = GoalsBarsPanel(self)
+        self._goal_bars.pack(fill="x", padx=16, pady=(0, 16))
+
+    def refresh(self, summary, goals, categories):
         if not summary:
             return
         net = summary["net"]
@@ -524,6 +584,7 @@ class DashboardTab(ttk.Frame):
         self._donut.update(summary["by_category"])
         self._bar.update(summary["by_category"])
         self._budget_bars.update(summary["by_category"])
+        self._goal_bars.update(goals, categories)
 
 
 # ── Transactions tab ───────────────────────────────────────────────────────
@@ -957,7 +1018,7 @@ class FinanceApp(tk.Tk):
 
         results = {}
         with self._lock:
-            self._pending = 4
+            self._pending = 5
 
         def store(key):
             def cb(data):
@@ -969,6 +1030,7 @@ class FinanceApp(tk.Tk):
                     self.state.categories   = results.get("cats", [])
                     self.state.transactions = results.get("txs", [])
                     self.state.budgets      = results.get("bgt", [])
+                    self.state.goals        = results.get("gls", [])
                     self.state.summary      = results.get("sum", {})
                     self._redraw()
             return cb
@@ -980,11 +1042,12 @@ class FinanceApp(tk.Tk):
         self.run_bg(self.api.get_categories,               on_success=store("cats"), on_error=err_cb)
         self.run_bg(self.api.get_transactions, m, y,       on_success=store("txs"),  on_error=err_cb)
         self.run_bg(self.api.get_budgets,      m, y,       on_success=store("bgt"),  on_error=err_cb)
+        self.run_bg(self.api.get_goals,                    on_success=store("gls"),  on_error=err_cb)
         self.run_bg(self.api.get_summary,      m, y,       on_success=store("sum"),  on_error=err_cb)
 
     def _redraw(self):
         self._status_lbl.config(text="", fg=COLORS["muted"])
-        self._dash_tab.refresh(self.state.summary)
+        self._dash_tab.refresh(self.state.summary, self.state.goals, self.state.categories)
         self._tx_tab.refresh(self.state.transactions, self.state.categories)
         self._bgt_tab.refresh(self.state.budgets, self.state.summary)
 
